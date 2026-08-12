@@ -36,7 +36,10 @@ def yahoo(symbol):
 
 
 def fred(series):
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
+    # Limit the CSV window so serverless requests do not download the full
+    # multi-decade series and time out before the page can calculate a signal.
+    start = time.strftime("%Y-%m-%d", time.gmtime(time.time() - 120 * 86400))
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}&cosd={start}"
     request = urllib.request.Request(url, headers={"User-Agent": "gold-signal-tool/1.0"})
     with urllib.request.urlopen(request, timeout=12) as response:
         rows = response.read().decode("utf-8").strip().splitlines()[1:]
