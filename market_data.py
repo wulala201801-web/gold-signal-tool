@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -62,6 +63,39 @@ def fred(series):
     }
 
 
+def treasury_real_yield():
+    month = time.strftime("%Y%m", time.gmtime())
+    url = (
+        "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml"
+        f"?data=daily_treasury_real_yield_curve&field_tdr_date_value_month={month}"
+    )
+    request = urllib.request.Request(url, headers={"User-Agent": "gold-signal-tool/1.0"})
+    with urllib.request.urlopen(request, timeout=12) as response:
+        body = response.read().decode("utf-8")
+    rows = re.findall(
+        r"<d:NEW_DATE[^>]*>([^<]+)</d:NEW_DATE>[\s\S]*?"
+        r"<d:TC_10YEAR[^>]*>([^<]+)</d:TC_10YEAR>",
+        body,
+    )
+    if not rows:
+        raise ValueError("no Treasury real-yield data")
+    date, value = rows[-1]
+    previous = float(rows[-2][1]) if len(rows) > 1 else None
+    return {
+        "value": float(value),
+        "previous": previous,
+        "date": date[:10],
+        "timestamp": int(time.time()),
+    }
+
+
+def real_yield():
+    try:
+        return fred("DFII10"), "FRED"
+    except Exception:
+        return treasury_real_yield(), "U.S. Treasury"
+
+
 def fetch_all():
     specs = {
         "gold": ("黄金期货", lambda: yahoo("GC=F"), "Yahoo Finance"),
@@ -69,12 +103,14 @@ def fetch_all():
         "usdjpy": ("美元兑日圆", lambda: yahoo("JPY=X"), "Yahoo Finance"),
         "nasdaq": ("纳斯达克", lambda: yahoo("^IXIC"), "Yahoo Finance"),
         "vix": ("VIX", lambda: yahoo("^VIX"), "Yahoo Finance"),
-        "real_yield": ("美国10年实际收益率", lambda: fred("DFII10"), "FRED"),
+        "real_yield": ("美国10年实际收益率", real_yield, "FRED"),
     }
     result = {"fetchedAt": int(time.time()), "data": {}, "errors": {}}
     for key, (label, fetch, source) in specs.items():
         try:
             value = fetch()
+            if key == "real_yield":
+                value, source = value
             value.update({"label": label, "source": source, "ok": True})
             result["data"][key] = value
         except Exception as error:
