@@ -1,0 +1,12 @@
+{
+  "name": "黄金红绿灯",
+  "short_name": "黄金风险",
+  "description": "基于美元、实际收益率、日圆、纳斯达克与 VIX 的黄金风险信号。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#211a12",
+  "theme_color": "#211a12",
+  "icons": [
+    {"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}
+  ]
+}
