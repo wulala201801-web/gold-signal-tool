@@ -12,8 +12,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/market":
             try:
-                payload = json.dumps(fetch_all(), ensure_ascii=False).encode()
-                status = 200
+                result = fetch_all()
+                score_ok = result.get("scores", {}).get("combinedRisk") is not None
+                payload = json.dumps(result, ensure_ascii=False).encode()
+                status = 200 if score_ok else 503
             except Exception as exc:
                 payload = json.dumps({"error": str(exc)}, ensure_ascii=False).encode()
                 status = 502

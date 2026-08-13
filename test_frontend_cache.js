@@ -32,9 +32,11 @@ function completePayload() {
   };
 }
 
-async function run(cached) {
+async function run(cached, recover = false) {
   const elements = new Map();
   const storage = new Map();
+  const timers = [];
+  let requests = 0;
   if (cached) {
     storage.set('goldSignalLastPayload', JSON.stringify(completePayload()));
     storage.set('goldSignalLastUpdated', new Date(1000).toISOString());
@@ -49,24 +51,35 @@ async function run(cached) {
     },
     location: {protocol: 'https:'},
     navigator: {},
-    fetch: async () => {throw new TypeError('failed to fetch');},
-    setTimeout: callback => {callback();}
+    fetch: async () => {
+      requests++;
+      if (recover && requests > 3) return {ok: true, json: async () => completePayload()};
+      throw new TypeError('failed to fetch');
+    },
+    setTimeout: (callback, delay) => {if (delay < 1000) callback(); else timers.push(callback); return timers.length;},
+    clearTimeout: () => {}
   };
   vm.createContext(context);
   vm.runInContext(script, context);
   await vm.runInContext('load()', context);
-  return elements;
+  return {elements, timers};
 }
 
 (async () => {
-  const cached = await run(true);
-  assert.equal(cached.get('scoreNum').textContent, 46);
-  assert.match(cached.get('status').innerHTML, /显示缓存数据/);
-  assert.match(cached.get('status').innerHTML, /浏览器网络请求失败/);
+  const cachedRun = await run(true);
+  assert.equal(cachedRun.elements.get('scoreNum').textContent, 46);
+  assert.match(cachedRun.elements.get('status').innerHTML, /显示缓存数据/);
+  assert.match(cachedRun.elements.get('status').innerHTML, /浏览器网络请求失败/);
 
-  const empty = await run(false);
-  assert.equal(empty.get('scoreNum').textContent, '--');
-  assert.equal(empty.get('lamp').textContent, '无法连接');
-  assert.match(empty.get('status').innerHTML, /浏览器网络请求失败/);
+  const emptyRun = await run(false);
+  assert.equal(emptyRun.elements.get('scoreNum').textContent, '--');
+  assert.equal(emptyRun.elements.get('lamp').textContent, '正在重新连接');
+  assert.match(emptyRun.elements.get('status').innerHTML, /5秒后自动重试/);
+
+  const recoveryRun = await run(false, true);
+  recoveryRun.timers.shift()();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(recoveryRun.elements.get('scoreNum').textContent, 46);
+  assert.equal(recoveryRun.elements.get('lamp').textContent, '🟡 黄灯');
   console.log('frontend cache fallback ok');
 })().catch(error => {console.error(error); process.exit(1);});

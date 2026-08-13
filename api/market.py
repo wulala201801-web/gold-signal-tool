@@ -10,7 +10,7 @@ class handler(BaseHTTPRequestHandler):
             result = fetch_all()
             score_ok = result.get("scores", {}).get("combinedRisk") is not None
             payload = json.dumps(result, ensure_ascii=False).encode("utf-8")
-            status = 200
+            status = 200 if score_ok else 503
         except Exception as error:
             payload = json.dumps({"error": str(error)}, ensure_ascii=False).encode("utf-8")
             status = 502
@@ -19,7 +19,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header(
             "Cache-Control",
-            "public, s-maxage=300, stale-while-revalidate=600" if score_ok else "no-store",
+            "public, s-maxage=300, stale-while-revalidate=600, stale-if-error=86400" if score_ok else "no-store",
         )
         self.end_headers()
         self.wfile.write(payload)
