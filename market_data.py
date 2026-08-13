@@ -3,6 +3,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def get_json(url):
@@ -199,7 +200,6 @@ def real_yield():
 
 
 def fetch_all():
-    gold_closes = None
     specs = {
         "gold": ("黄金期货", lambda: yahoo_series("GC=F", 190), "Yahoo Finance"),
         "dxy": ("美元指数", lambda: yahoo("DX-Y.NYB"), "Yahoo Finance"),
@@ -209,9 +209,24 @@ def fetch_all():
         "real_yield": ("美国10年实际收益率", real_yield, "FRED"),
     }
     result = {"fetchedAt": int(time.time()), "data": {}, "errors": {}}
-    for key, (label, fetch, source) in specs.items():
+    fetched = {}
+    with ThreadPoolExecutor(max_workers=len(specs)) as executor:
+        futures = {executor.submit(fetch): key for key, (_, fetch, _) in specs.items()}
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                fetched[key] = (future.result(), None)
+            except Exception as error:
+                fetched[key] = (None, error)
+
+    gold_closes = None
+    for key, (label, _, source) in specs.items():
+        value, error = fetched[key]
+        if error is not None:
+            result["errors"][key] = str(error)
+            result["data"][key] = {"label": label, "source": source, "ok": False}
+            continue
         try:
-            value = fetch()
             if key == "real_yield":
                 value, source = value
             elif key == "gold":
