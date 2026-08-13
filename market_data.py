@@ -11,10 +11,10 @@ def get_json(url):
         return json.loads(response.read().decode("utf-8"))
 
 
-def yahoo(symbol):
+def yahoo_series(symbol, days=7):
     end = int(time.time())
     query = urllib.parse.urlencode({
-        "period1": end - 7 * 86400,
+        "period1": end - days * 86400,
         "period2": end,
         "interval": "1d",
         "events": "history",
@@ -28,12 +28,90 @@ def yahoo(symbol):
     if not closes:
         raise ValueError("no close data")
     timestamps = result.get("timestamp", [])
-    return {
+    snapshot = {
         "value": closes[-1],
         "previous": closes[-2] if len(closes) > 1 else None,
         "timestamp": timestamps[-1] if timestamps else int(time.time()),
         "currency": meta.get("currency"),
     }
+    return snapshot, closes
+
+
+def yahoo(symbol):
+    return yahoo_series(symbol)[0]
+
+
+def clamp(value, low=0, high=100):
+    return max(low, min(high, value))
+
+
+def macro_score(data):
+    required = ("dxy", "real_yield", "usdjpy", "nasdaq", "vix")
+    if any(not data.get(k, {}).get("ok") or data[k].get("previous") is None for k in required):
+        raise ValueError("macro data incomplete")
+    directional, reasons = 50, []
+    change = lambda key: data[key]["value"] - data[key]["previous"]
+    if change("dxy") < 0:
+        directional += 10; reasons.append("美元走弱，宏观风险 -10")
+    else:
+        directional -= 10; reasons.append("美元走强，宏观风险 +10")
+    if change("real_yield") < 0:
+        directional += 15; reasons.append("实际收益率回落，宏观风险 -15")
+    else:
+        directional -= 10; reasons.append("实际收益率未回落，宏观风险 +10")
+    if data["usdjpy"]["value"] < 160 and change("usdjpy") < 0:
+        directional += 15; reasons.append("美元兑日圆回落，宏观风险 -15")
+    elif data["usdjpy"]["value"] >= 160:
+        directional -= 15; reasons.append("美元兑日圆突破 160，宏观风险 +15")
+    deleverage = change("usdjpy") < 0 and change("nasdaq") < 0 and change("vix") > 0
+    if deleverage:
+        directional -= 20; reasons.append("日圆升值、纳指下跌且 VIX 上升，去杠杆风险 +20")
+    risk = round(100 - clamp(directional))
+    return max(risk, 80) if deleverage else risk, reasons, deleverage
+
+
+def price_heat(closes):
+    if len(closes) < 60:
+        raise ValueError("fewer than 60 gold trading days")
+    current, previous = closes[-1], closes[-2]
+    percentile = 100 * sum(value <= current for value in closes) / len(closes)
+    ma20_deviation = 100 * (current / (sum(closes[-20:]) / 20) - 1)
+    return20 = 100 * (current / closes[-21] - 1)
+    daily_return = 100 * (current / previous - 1)
+    components = {
+        "percentile": round(percentile, 1), "ma20Deviation": round(ma20_deviation, 2),
+        "return20": round(return20, 2), "dailyReturn": round(daily_return, 2),
+        "percentileScore": round(clamp(percentile), 1),
+        "ma20DeviationScore": round(clamp(ma20_deviation / 8 * 100), 1),
+        "return20Score": round(clamp(return20 / 15 * 100), 1),
+        "dailyReturnScore": round(clamp(daily_return / 3 * 100), 1),
+    }
+    risk = round(components["percentileScore"]*.4 + components["ma20DeviationScore"]*.3 + components["return20Score"]*.2 + components["dailyReturnScore"]*.1)
+    return risk, components
+
+
+def combined_score(data, gold_closes):
+    macro_risk, reasons, deleverage = macro_score(data)
+    heat_risk, heat = price_heat(gold_closes)
+    combined, guards = round(macro_risk*.4 + heat_risk*.6), []
+    if heat_risk >= 60 and combined < 40:
+        combined = 40; guards.append("价格追高风险达到 60，综合灯号最低为黄灯")
+    if macro_risk >= 80 and combined < 71:
+        combined = 71; guards.append("宏观风险达到 80，综合灯号强制为红灯")
+    signal = "red" if combined >= 71 else "yellow" if combined >= 40 else "green"
+    if signal == "green":
+        conclusion = "综合风险较低：可按计划小额分批，不加杠杆"
+        actions = ["按原计划持有，可小额分批", "分批买入，不一次重仓", "顺势观察，严格设置止损"]
+    elif macro_risk < 40 and heat_risk >= 60:
+        conclusion = "宏观偏有利，但金价处于阶段高位：持有，不追高"
+        actions = ["继续持有，不因高位清空核心仓位", "等待回落后分批，不追高", "减少频繁交易，控制仓位"]
+    elif signal == "yellow":
+        conclusion = "综合风险中等：方向或价格位置未确认，持有或等待"
+        actions = ["继续持有，不追涨", "等待回落或信号转绿再分批", "减少频繁交易，控制仓位"]
+    else:
+        conclusion = "综合风险较高：暂停追高，优先降低杠杆"
+        actions = ["优先减仓或降低杠杆", "暂停买入与追高", "停止逆势交易，等待风险回落"]
+    return {"macroRisk": macro_risk, "priceHeatRisk": heat_risk, "combinedRisk": combined, "signal": signal, "macroReasons": reasons, "priceHeat": heat, "guards": guards, "deleverage": deleverage, "conclusion": conclusion, "actions": actions}
 
 
 def fred(series):
@@ -97,8 +175,9 @@ def real_yield():
 
 
 def fetch_all():
+    gold_closes = None
     specs = {
-        "gold": ("黄金期货", lambda: yahoo("GC=F"), "Yahoo Finance"),
+        "gold": ("黄金期货", lambda: yahoo_series("GC=F", 190), "Yahoo Finance"),
         "dxy": ("美元指数", lambda: yahoo("DX-Y.NYB"), "Yahoo Finance"),
         "usdjpy": ("美元兑日圆", lambda: yahoo("JPY=X"), "Yahoo Finance"),
         "nasdaq": ("纳斯达克", lambda: yahoo("^IXIC"), "Yahoo Finance"),
@@ -111,9 +190,16 @@ def fetch_all():
             value = fetch()
             if key == "real_yield":
                 value, source = value
+            elif key == "gold":
+                value, gold_closes = value
             value.update({"label": label, "source": source, "ok": True})
             result["data"][key] = value
         except Exception as error:
             result["errors"][key] = str(error)
             result["data"][key] = {"label": label, "source": source, "ok": False}
+    try:
+        result["scores"] = combined_score(result["data"], gold_closes or [])
+    except Exception as error:
+        result["errors"]["scores"] = str(error)
+        result["scores"] = {"ok": False, "error": str(error)}
     return result
