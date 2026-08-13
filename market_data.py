@@ -11,16 +11,7 @@ def get_json(url):
         return json.loads(response.read().decode("utf-8"))
 
 
-def yahoo_series(symbol, days=7):
-    end = int(time.time())
-    query = urllib.parse.urlencode({
-        "period1": end - days * 86400,
-        "period2": end,
-        "interval": "1d",
-        "events": "history",
-    })
-    encoded_symbol = urllib.parse.quote(symbol)
-    data = get_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded_symbol}?{query}")
+def parse_yahoo_chart(data):
     result = data["chart"]["result"][0]
     meta = result.get("meta", {})
     quote = result.get("indicators", {}).get("quote", [{}])[0]
@@ -35,6 +26,39 @@ def yahoo_series(symbol, days=7):
         "currency": meta.get("currency"),
     }
     return snapshot, closes
+
+
+def yahoo_series(symbol, days=7):
+    end = int(time.time())
+    period_query = urllib.parse.urlencode({
+        "period1": end - days * 86400,
+        "period2": end,
+        "interval": "1d",
+        "events": "history",
+    })
+    range_query = urllib.parse.urlencode({
+        "range": "6mo" if days >= 60 else "7d",
+        "interval": "1d",
+        "events": "history",
+    })
+    encoded_symbol = urllib.parse.quote(symbol)
+    minimum = 60 if days >= 60 else 2
+    errors = []
+    for host, query in (
+        ("query1.finance.yahoo.com", period_query),
+        ("query2.finance.yahoo.com", range_query),
+        ("query1.finance.yahoo.com", range_query),
+    ):
+        try:
+            parsed = parse_yahoo_chart(get_json(
+                f"https://{host}/v8/finance/chart/{encoded_symbol}?{query}"
+            ))
+            if len(parsed[1]) >= minimum:
+                return parsed
+            errors.append(f"{host}: only {len(parsed[1])} closes")
+        except Exception as error:
+            errors.append(f"{host}: {error}")
+    raise ValueError("; ".join(errors))
 
 
 def yahoo(symbol):
