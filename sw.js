@@ -1,4 +1,4 @@
-const CACHE = 'gold-signal-shell-v1';
+const CACHE = 'gold-signal-shell-v3';
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', event => {
