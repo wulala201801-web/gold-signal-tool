@@ -19,7 +19,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header(
             "Cache-Control",
-            "public, s-maxage=300, stale-while-revalidate=600, stale-if-error=86400" if score_ok else "no-store",
+            "public, max-age=0, s-maxage=900, stale-while-revalidate=86400, stale-if-error=86400" if score_ok else "no-store",
         )
         self.end_headers()
         self.wfile.write(payload)

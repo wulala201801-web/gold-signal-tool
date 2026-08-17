@@ -24,6 +24,8 @@ class ApiHandlerTests(unittest.TestCase):
     def test_complete_score_returns_200_with_stale_error_fallback(self):
         response = self.response_for({"scores": {"combinedRisk": 46}})
         self.assertEqual(response.status, 200)
+        self.assertIn("s-maxage=900", response.cache_control)
+        self.assertIn("stale-while-revalidate=86400", response.cache_control)
         self.assertIn("stale-if-error=86400", response.cache_control)
 
 

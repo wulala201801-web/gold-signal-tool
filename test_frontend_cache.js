@@ -54,7 +54,7 @@ async function run(cached, recover = false) {
     navigator: {},
     fetch: async () => {
       requests++;
-      if (recover && requests > 1) return {ok: true, json: async () => completePayload()};
+      if (recover && requests > 1) return {ok: true, headers: {get: () => '0'}, json: async () => completePayload()};
       throw new TypeError('failed to fetch');
     },
     setTimeout: (callback, delay) => {if (delay < 1000) callback(); else timers.push(callback); return timers.length;},
@@ -72,7 +72,7 @@ async function run(cached, recover = false) {
   const cachedRun = await run(true);
   assert.equal(cachedRun.elements.get('scoreNum').textContent, 46);
   assert.equal(cachedRun.elements.get('marketDate').textContent, '1970.1.1');
-  assert.match(cachedRun.elements.get('status').innerHTML, /显示缓存数据/);
+  assert.match(cachedRun.elements.get('status').innerHTML, /暂用最近完整数据/);
   assert.match(cachedRun.elements.get('status').innerHTML, /浏览器网络请求失败/);
 
   const emptyRun = await run(false);
