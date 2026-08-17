@@ -54,7 +54,7 @@ async function run(cached, recover = false) {
     navigator: {},
     fetch: async () => {
       requests++;
-      if (recover && requests > 3) return {ok: true, json: async () => completePayload()};
+      if (recover && requests > 1) return {ok: true, json: async () => completePayload()};
       throw new TypeError('failed to fetch');
     },
     setTimeout: (callback, delay) => {if (delay < 1000) callback(); else timers.push(callback); return timers.length;},
