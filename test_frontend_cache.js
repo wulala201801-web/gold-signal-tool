@@ -12,7 +12,8 @@ class Element {
     this.innerHTML = '';
     this.className = '';
     this.disabled = false;
-    this.classList = {toggle() {}};
+    this.style = {};
+    this.classList = {add() {}, remove() {}, toggle() {}};
   }
 }
 
@@ -57,7 +58,9 @@ async function run(cached, recover = false) {
       throw new TypeError('failed to fetch');
     },
     setTimeout: (callback, delay) => {if (delay < 1000) callback(); else timers.push(callback); return timers.length;},
-    clearTimeout: () => {}
+    clearTimeout: () => {},
+    setInterval: () => 1,
+    clearInterval: () => {}
   };
   vm.createContext(context);
   vm.runInContext(script, context);
@@ -68,18 +71,23 @@ async function run(cached, recover = false) {
 (async () => {
   const cachedRun = await run(true);
   assert.equal(cachedRun.elements.get('scoreNum').textContent, 46);
+  assert.equal(cachedRun.elements.get('marketDate').textContent, '1970.1.1');
   assert.match(cachedRun.elements.get('status').innerHTML, /显示缓存数据/);
   assert.match(cachedRun.elements.get('status').innerHTML, /浏览器网络请求失败/);
 
   const emptyRun = await run(false);
   assert.equal(emptyRun.elements.get('scoreNum').textContent, '--');
   assert.equal(emptyRun.elements.get('lamp').textContent, '正在重新连接');
-  assert.match(emptyRun.elements.get('status').innerHTML, /5秒后自动重试/);
+  assert.equal(emptyRun.elements.get('marketDate').textContent, '数据待更新');
+  assert.match(emptyRun.elements.get('progressNote').textContent, /5秒后重新连接/);
 
   const recoveryRun = await run(false, true);
   recoveryRun.timers.shift()();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(recoveryRun.elements.get('scoreNum').textContent, 46);
   assert.equal(recoveryRun.elements.get('lamp').textContent, '🟡 黄灯');
+  assert.equal(recoveryRun.elements.get('marketDate').textContent, '1970.1.1');
+  assert.equal(recoveryRun.elements.get('progressPercent').textContent, '100%');
+  assert.equal(recoveryRun.elements.get('progressStage').textContent, '数据更新完成');
   console.log('frontend cache fallback ok');
 })().catch(error => {console.error(error); process.exit(1);});
